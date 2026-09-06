@@ -4,7 +4,11 @@ import android.graphics.Color
 import android.view.ViewGroup
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -14,8 +18,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.OutlinedTextField
@@ -48,6 +56,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,6 +69,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.amap.api.maps.AMap
@@ -70,6 +80,7 @@ import com.amap.api.maps.model.Circle
 import com.amap.api.maps.model.CircleOptions
 import com.amap.api.maps.model.LatLng
 import com.amap.api.maps.model.Polyline
+import com.amap.api.maps.model.BitmapDescriptor
 import com.amap.api.maps.model.BitmapDescriptorFactory
 import com.amap.api.maps.model.Marker
 import com.amap.api.maps.model.MarkerOptions
@@ -78,10 +89,13 @@ import com.google.gson.Gson
 import com.google.gson.JsonObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.File
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 // ── 后端 /api/map 数据结构（与 DSH 后端 map_collector.py 对齐）───────────
@@ -158,16 +172,17 @@ private class NativeMapHolder {
         val map = aMap ?: run { placeClick = onClick; return }
         placeClick = onClick
         removePlaceMarkers()
+        val dens = mapView?.resources?.displayMetrics?.density ?: 1f
         for (p in places) {
             if (!p.hasCoords) continue
-            val hue = when (p.type) {
-                EntryType.PLACE.name -> BitmapDescriptorFactory.HUE_RED
-                EntryType.GAZETTEER.name -> BitmapDescriptorFactory.HUE_AZURE
-                else -> BitmapDescriptorFactory.HUE_VIOLET
+            val color = when (p.type) {
+                EntryType.PLACE.name -> 0xFFE8543D.toInt()
+                EntryType.GAZETTEER.name -> 0xFF2A7FFF.toInt()
+                else -> 0xFF8A6AE8.toInt()
             }
             val m = map.addMarker(
                 MarkerOptions().position(LatLng(p.lat!!, p.lng!!)).title(p.title)
-                    .icon(BitmapDescriptorFactory.defaultMarker(hue)).anchor(0.5f, 1f)
+                    .icon(dotDescriptor(color, dens)).anchor(0.5f, 0.5f)
             )
             m?.setObject(p.id)
             if (m != null) placeMarkers.add(m)
@@ -340,6 +355,19 @@ private suspend fun fetchPublicFallback(): DshMapData? = try {
     DshMapData(flights = emptyList(), quakes = quakes, sats = sats, vessels = emptyList())
 } catch (e: Exception) { null }
 
+// 自绘圆点图钉（不依赖 SDK 默认图标资源，保证可渲染可点击）
+private fun dotDescriptor(color: Int, density: Float): BitmapDescriptor {
+    val s = (26 * density).toInt().coerceAtLeast(22)
+    val bmp = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
+    val cv = Canvas(bmp)
+    val p = Paint(Paint.ANTI_ALIAS_FLAG)
+    p.color = Color.WHITE
+    cv.drawCircle(s / 2f, s / 2f, s / 2f, p)
+    p.color = color
+    cv.drawCircle(s / 2f, s / 2f, s / 2f - 2f * density, p)
+    return BitmapDescriptorFactory.fromBitmap(bmp)
+}
+
 // ── Compose 页面 ───────────────────────────────────────────────────────
 @Composable
 fun NativeMapScreen() {
@@ -359,6 +387,13 @@ fun NativeMapScreen() {
     var searchText by remember { mutableStateOf("") }
     var placeOn by remember { mutableStateOf(true) }
     var bioOn by remember { mutableStateOf(false) }   // 生物分布层默认不标出
+
+    fun applyUpdated(u: LocalEntry) {
+        val next = places.map { if (it.id == u.id) u else it }
+        places = next
+        selected = u
+        holder.setPlaces(if (placeOn) next else emptyList()) { selected = it }
+    }
 
 
     DisposableEffect(lifecycleOwner) {
@@ -458,7 +493,7 @@ fun NativeMapScreen() {
             onSearch = { searchText = it },
             onPick = { e -> holder.focus(e); selected = e; searchText = ""; searchOpen = false }
         )
-        PlaceDetailPanel(selected, onClose = { selected = null })
+        PlaceDetailPanel(selected, db = db, onClose = { selected = null }, onChanged = { applyUpdated(it) })
     }
 }
 
@@ -533,11 +568,32 @@ private fun BoxScope.PlaceSearchUi(
 
 // ── 地点详情面板：介绍 + 照片 + 来源 ──
 @Composable
-private fun BoxScope.PlaceDetailPanel(entry: LocalEntry?, onClose: () -> Unit) {
+private fun BoxScope.PlaceDetailPanel(
+    entry: LocalEntry?,
+    db: LocalDb,
+    onClose: () -> Unit,
+    onChanged: (LocalEntry) -> Unit
+) {
     entry ?: return
-    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(10.dp)
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var quick by remember { mutableStateOf("") }
+    var saving by remember { mutableStateOf(false) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val dir = File(ctx.filesDir, "photos").apply { mkdirs() }
+            val dst = File(dir, UUID.randomUUID().toString() + ".img")
+            try {
+                ctx.contentResolver.openInputStream(uri)?.use { ins -> dst.outputStream().use { o -> ins.copyTo(o) } }
+                val upd = entry.copy(photos = entry.photos + dst.absolutePath, updatedAt = System.currentTimeMillis())
+                scope.launch(Dispatchers.IO) { db.update(upd) }
+                onChanged(upd)
+            } catch (ex: Exception) { /* 忽略 */ }
+        }
+    }
+    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(10.dp).zIndex(5f)
         .clip(RoundedCornerShape(16.dp)).background(ComposeColor(0xF7FFFFFF))) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(14.dp)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(entry.title, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = ComposeColor(0xFF1F4A36))
@@ -546,34 +602,59 @@ private fun BoxScope.PlaceDetailPanel(entry: LocalEntry?, onClose: () -> Unit) {
                 }
                 IconButton(onClick = onClose) { Icon(Icons.Default.Close, "关闭", tint = ComposeColor(0xFF5F9678)) }
             }
-            if (entry.body.isNotBlank()) {
-                Text(entry.body, fontSize = 14.sp, color = ComposeColor(0xFF23402F),
-                    modifier = Modifier.padding(top = 6.dp))
-            }
-            if (entry.photos.isNotEmpty()) {
-                Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    entry.photos.forEach { p ->
-                        val bmp = remember(p) {
-                            runCatching {
-                                val opts = BitmapFactory.Options().apply { inSampleSize = 3 }
-                                BitmapFactory.decodeFile(p, opts)
-                            }.getOrNull()
-                        }
-                        if (bmp != null) {
-                            Image(bmp.asImageBitmap(), contentDescription = null,
-                                modifier = Modifier.size(110.dp).clip(RoundedCornerShape(10.dp)),
-                                contentScale = ContentScale.Crop)
+            Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                if (entry.body.isNotBlank()) {
+                    Text(entry.body, fontSize = 14.sp, color = ComposeColor(0xFF23402F), modifier = Modifier.padding(top = 6.dp))
+                }
+                if (entry.photos.isNotEmpty()) {
+                    Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        entry.photos.forEach { p ->
+                            val bmp = remember(p) {
+                                runCatching {
+                                    val opts = BitmapFactory.Options().apply { inSampleSize = 3 }
+                                    BitmapFactory.decodeFile(p, opts)
+                                }.getOrNull()
+                            }
+                            if (bmp != null) {
+                                Image(bmp.asImageBitmap(), contentDescription = null,
+                                    modifier = Modifier.size(100.dp).clip(RoundedCornerShape(10.dp)),
+                                    contentScale = ContentScale.Crop)
+                            }
                         }
                     }
                 }
+                if (entry.source.isNotBlank()) {
+                    Text("来源：" + entry.source, fontSize = 11.sp, color = ComposeColor(0xFF8AA99A),
+                        modifier = Modifier.padding(top = 6.dp))
+                }
             }
-            if (entry.source.isNotBlank()) {
-                Text("来源：" + entry.source, fontSize = 11.sp, color = ComposeColor(0xFF8AA99A),
-                    modifier = Modifier.padding(top = 6.dp))
+            // ── 快速补充信息 ──
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
+                OutlinedTextField(value = quick, onValueChange = { quick = it },
+                    placeholder = { Text("快速补充一句…（自动存进介绍）", fontSize = 12.sp) },
+                    modifier = Modifier.weight(1f), singleLine = true)
+                IconButton(onClick = {
+                    if (quick.isNotBlank() && !saving) {
+                        saving = true
+                        val addLine = "\n· " + quick.trim()
+                        val upd = entry.copy(body = entry.body + addLine, updatedAt = System.currentTimeMillis())
+                        scope.launch(Dispatchers.IO) {
+                            db.update(upd)
+                            withContext(Dispatchers.Main) { saving = false }
+                        }
+                        onChanged(upd)
+                        quick = ""
+                    }
+                }) {
+                    Icon(Icons.Default.Save, "保存补充", tint = ComposeColor(0xFF3E9B6F), modifier = Modifier.size(20.dp))
+                }
+                IconButton(onClick = { picker.launch(arrayOf("image/*")) }) {
+                    Icon(Icons.Default.PhotoCamera, "加照片", tint = ComposeColor(0xFF3E9B6F), modifier = Modifier.size(20.dp))
+                }
             }
-            TextButton(onClick = { AppUiState.module = "db" }) {
-                Text("在「数据库」中维护", color = ComposeColor(0xFF3E9B6F), fontSize = 12.sp)
+            TextButton(onClick = { AppUiState.module = "db" }, modifier = Modifier.align(Alignment.End)) {
+                Text("在「数据库」完整编辑", color = ComposeColor(0xFF3E9B6F), fontSize = 12.sp)
             }
         }
     }

@@ -200,25 +200,30 @@ private fun EntryEditor(entry: LocalEntry, db: LocalDb, onClose: () -> Unit) {
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             for (t in EntryType.entries) {
-                FilterPill(t.label, e.type == t.name) { e = e.copy(type = t.name) }
+                FilterPill(t.label, e.type == t.name) {
+                    e = if (t == EntryType.PLACE) e.copy(type = t.name)
+                    else e.copy(type = t.name, lat = null, lng = null)
+                }
             }
         }
         Spacer(Modifier.height(10.dp))
         OutlinedTextField(value = e.title, onValueChange = { e = e.copy(title = it) },
             label = { Text("标题（地点名/文献名）") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(value = e.lat?.toString() ?: "", onValueChange = { s ->
-                e = e.copy(lat = s.toDoubleOrNull())
-            }, label = { Text("纬度(可选)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.weight(1f), singleLine = true)
-            OutlinedTextField(value = e.lng?.toString() ?: "", onValueChange = { s ->
-                e = e.copy(lng = s.toDoubleOrNull())
-            }, label = { Text("经度(可选)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.weight(1f), singleLine = true)
-        }
-        if (e.type == EntryType.PLACE.name && !e.hasCoords) {
-            Text("地点类型建议填写经纬度，地图上才能显示标记", color = Color(0xFFE08A3C), fontSize = 11.sp)
+        if (e.type == EntryType.PLACE.name) {
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = e.lat?.toString() ?: "", onValueChange = { s ->
+                    e = e.copy(lat = s.toDoubleOrNull())
+                }, label = { Text("纬度(可选)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.weight(1f), singleLine = true)
+                OutlinedTextField(value = e.lng?.toString() ?: "", onValueChange = { s ->
+                    e = e.copy(lng = s.toDoubleOrNull())
+                }, label = { Text("经度(可选)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.weight(1f), singleLine = true)
+            }
+            if (!e.hasCoords) {
+                Text("填写经纬度后，地点会显示在地图上，可点击查看/补充介绍", color = Color(0xFFE08A3C), fontSize = 11.sp)
+            }
         }
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(value = e.body, onValueChange = { e = e.copy(body = it) },
@@ -266,7 +271,8 @@ private fun EntryEditor(entry: LocalEntry, db: LocalDb, onClose: () -> Unit) {
                     saving = true
                     scope.launch(Dispatchers.IO) {
                         val now = System.currentTimeMillis()
-                        val finalEntry = e.copy(createdAt = if (e.id == 0L) now else e.createdAt, updatedAt = now)
+                        val clean = if (e.type == EntryType.PLACE.name) e else e.copy(lat = null, lng = null)
+                        val finalEntry = clean.copy(createdAt = if (clean.id == 0L) now else clean.createdAt, updatedAt = now)
                         if (e.id == 0L) db.insert(finalEntry) else db.update(finalEntry)
                         withContext(Dispatchers.Main) { saving = false; onClose() }
                     }
