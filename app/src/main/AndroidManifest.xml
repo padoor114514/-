@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 网络权限：访问 Tailscale/ZeroTier 虚拟局域网 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 高德原生地图 SDK -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+
+    <!-- 录音权限：SpeechRecognizer 需要 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Android 14+ 前台服务类型声明 (如后续扩展后台功能) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.SpineAgent"
+        android:usesCleartextTraffic="true"
+        android:networkSecurityConfig="@xml/network_security_config">
+
+        <!-- 高德 Android SDK 鉴权 key（249aa0d64aa16a4b2aaa2854b17fa065 已按 com.spineagent + SHA1 注册）
+             SDK 10.x 读取 com.amap.api.v2.apikey（FAQ：INVALID_USER_KEY/10001 的修复项）；旧的 com.amap.v2.apikey 一并保留兜底 -->
+        <meta-data
+            android:name="com.amap.api.v2.apikey"
+            android:value="249aa0d64aa16a4b2aaa2854b17fa065" />
+        <meta-data
+            android:name="com.amap.v2.apikey"
+            android:value="249aa0d64aa16a4b2aaa2854b17fa065" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:screenOrientation="landscape"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+    </application>
+</manifest>

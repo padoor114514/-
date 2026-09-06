@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>大地巡礼 · 世界地图</title>
+<style>
+  :root{ --bg:#dff2e4; --panel:rgba(255,255,255,.75); --line:#8fc9a3; --txt:#2b6b45; --muted:#5f9678; --accent:#3e9b6f; --danger:#ff7a6b; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden}
+  body{background:var(--bg);color:var(--txt);font-family:"PingFang SC","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased;user-select:none}
+  #mapRoot{position:absolute;inset:0}
+  #amapContainer{position:absolute;inset:0;display:none}
+  .bar{position:absolute;left:0;right:0;top:0;display:flex;align-items:center;gap:12px;padding:12px 16px;z-index:6;pointer-events:auto}
+  .title{display:flex;align-items:center;gap:8px;font-weight:700;font-size:17px;color:var(--txt)}
+  .title svg{width:22px;height:22px;color:var(--accent)}
+  .legend{position:absolute;left:16px;bottom:16px;z-index:6;display:flex;gap:8px;flex-wrap:wrap;pointer-events:auto;max-width:70%}
+  .chip{font-size:11.5px;color:var(--muted);background:rgba(255,255,255,.6);border:1px solid var(--line);border-radius:999px;padding:6px 11px;cursor:pointer;white-space:nowrap}
+  .chip.on{color:#fff;background:var(--accent);border-color:var(--accent)}
+  .zoom{position:absolute;right:16px;bottom:16px;z-index:6;display:flex;flex-direction:column;gap:6px;pointer-events:auto}
+  .zoom button{width:34px;height:34px;border-radius:9px;background:rgba(255,255,255,.7);border:1px solid var(--line);color:var(--txt);display:flex;align-items:center;justify-content:center}
+  .zoom button:hover{background:#fff}
+  .zoom button svg{width:16px;height:16px}
+  #hint{position:absolute;right:16px;top:58px;z-index:6;font-size:11px;color:var(--muted);background:rgba(255,255,255,.55);border:1px solid var(--line);border-radius:8px;padding:4px 8px}
+</style>
+</head>
+<body>
+<div id="mapRoot"></div>
+<div id="amapContainer"></div>
+<div class="bar">
+  <div class="title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.3 2.6 3.4 6 3.4 9s-1.1 6.4-3.4 9c-2.3-2.6-3.4-6-3.4-9s1.1-6.4 3.4-9z"/></svg>世界地图</div>
+  <div id="hint">拖拽平移 · 滚轮/按钮缩放 · 点击图例切换实时事件</div>
+</div>
+<div class="legend" id="layers"></div>
+<div class="zoom">
+  <button id="zoomIn" title="放大"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+  <button id="zoomOut" title="缩小"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
+  <button id="zoomReset" title="重置"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg></button>
+</div>
+
+<script>
+const CONTINENTS = [
+ {n:'北美', c:'#f7d9a0', pts:[[-167,66],[-160,58],[-150,60],[-137,59],[-130,53],[-124,44],[-117,32],[-110,24],[-100,20],[-97,26],[-90,29],[-83,25],[-80,32],[-74,39],[-70,44],[-62,47],[-54,52],[-60,59],[-72,64],[-90,68],[-110,70],[-130,70],[-152,69],[-167,66]]},
+ {n:'中美洲', c:'#f7d9a0', pts:[[-92,16],[-96,16],[-105,20],[-99,18],[-92,17],[-85,12],[-80,9],[-77,8],[-83,13],[-88,16],[-92,16]]},
+ {n:'格陵兰', c:'#e8f6ec', pts:[[-55,60],[-45,60],[-35,66],[-30,71],[-40,76],[-55,77],[-68,75],[-73,66],[-62,60],[-55,60]]},
+ {n:'南美', c:'#f7d9a0', pts:[[-77,8],[-70,11],[-62,10],[-55,5],[-50,0],[-44,-4],[-39,-9],[-40,-16],[-47,-26],[-53,-34],[-58,-39],[-63,-42],[-67,-45],[-72,-47],[-73,-40],[-73,-30],[-72,-22],[-70,-12],[-75,-5],[-77,8]]},
+ {n:'欧洲', c:'#ffe9b8', pts:[[-10,36],[-8,42],[-9,48],[-1,50],[2,52],[5,55],[8,57],[11,59],[16,61],[22,60],[27,59],[29,56],[28,52],[30,46],[26,41],[22,38],[18,40],[14,42],[10,44],[6,43],[0,40],[-10,37],[-10,36]]},
+ {n:'非洲', c:'#f7d9a0', pts:[[-17,15],[-15,28],[-10,34],[-3,37],[3,37],[11,35],[20,32],[32,31],[34,27],[38,20],[40,12],[44,8],[48,12],[43,2],[40,-8],[36,-18],[29,-27],[21,-34],[17,-34],[14,-26],[11,-16],[7,-6],[3,2],[-5,5],[-12,8],[-16,12],[-17,15]]},
+ {n:'亚洲', c:'#ffe9b8', pts:[[28,30],[32,42],[42,50],[52,59],[62,68],[78,72],[95,74],[115,72],[132,70],[150,68],[165,64],[177,63],[178,60],[170,58],[160,52],[150,45],[140,39],[134,33],[128,30],[120,28],[113,24],[110,18],[106,10],[101,14],[96,22],[88,22],[82,12],[78,8],[73,8],[70,18],[64,26],[57,28],[50,30],[44,35],[38,37],[33,36],[28,30]]},
+ {n:'印度', c:'#ffe9b8', pts:[[70,20],[73,24],[80,27],[87,25],[89,22],[85,16],[80,10],[76,8],[72,10],[70,20]]},
+ {n:'澳洲', c:'#f7d9a0', pts:[[114,-22],[122,-14],[132,-12],[142,-11],[152,-14],[154,-24],[150,-34],[144,-39],[136,-38],[128,-32],[120,-31],[114,-34],[112,-26],[114,-22]]},
+ {n:'南极', c:'#e8f6ec', pts:[[-170,-70],[-120,-74],[-60,-72],[0,-70],[60,-72],[120,-74],[170,-70],[180,-78],[180,-88],[-180,-88],[-180,-70],[-170,-70]]}
+];
+const RANGES=[['落基山脉',-113,42],['安第斯山脉',-72,-33],['喜马拉雅山脉',84,29],['阿尔卑斯山脉',9,46],['乌拉尔山脉',60,60],['阿特拉斯山脉',-5,33],['高加索山脉',43,42],['天山山脉',80,42],['大分水岭',150,-26]];
+const CITIES=[['北京',116.4,39.9],['上海',121.5,31.2],['东京',139.7,35.7],['新德里',77.2,28.6],['莫斯科',37.6,55.7],['伦敦',-0.1,51.5],['巴黎',2.35,48.9],['迪拜',55.3,25.2],['开罗',31.2,30],['纽约',-74,40.7],['洛杉矶',-118.2,34],['墨西哥城',-99.1,19.4],['巴西利亚',-47.9,-15.8],['悉尼',151.2,-33.9]];
+
+const W=1000,H=500;
+function ex(lon){return (lon+180)/360*W;}
+function ey(lat){return (90-lat)/180*H;}
+function path(c){let s='';for(let i=0;i<c.pts.length;i++){s+=(i?'L':'M')+ex(c.pts[i][0]).toFixed(1)+' '+ey(c.pts[i][1]).toFixed(1)+' ';}s+='Z';return s;}
+
+const mapRoot=document.getElementById('mapRoot');
+const MAP_IMAGE_LOCAL='file:///android_asset/gods-eye/textures/earth-standard.jpg';
+const MAP_IMAGE_REMOTE=(window.DSH_MAP_IMAGE||'https://upload.wikimedia.org/wikipedia/commons/8/83/Equirectangular_projection_SW.jpg');
+let mapImageSrc=MAP_IMAGE_LOCAL;
+let scale=1, offX=0, offY=0;
+const DETAIL_LABEL=1.7, DETAIL_MOUNT=1.35;
+let flights=[],quakes=[],sats=[],vessels=[];
+let amap=null, amapReady=false, amapOverlays=[], amapAuthFailed=false;
+
+// 高德 SDK 在密钥/安全码错误时只往 console.error 打日志（INVALID_USER_SCODE 等），
+// 页面自身监听不到；这里劫持 console.error，一旦发现认证失败立即回退 SVG，避免灰屏。
+(function(){
+  const origErr=console.error.bind(console);
+  console.error=function(){
+    for(let i=0;i<arguments.length;i++){
+      if(!amapAuthFailed && /INVALID_USER|USERKEY|USER_KEY/i.test(String(arguments[i]))){ amapAuthFailed=true; amapFailover(); }
+    }
+    origErr.apply(null,arguments);
+  };
+})();
+
+const AMAP_KEY=(window.DSH_AMAP_KEY||'71a3072df74d69aa5120a383ec9e1380');
+const AMAP_SECURITY_CODE=(window.DSH_AMAP_SECURITY_CODE||'');
+
+function render2d(){
+  mapRoot.innerHTML='';
+  let svg='<svg xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet" style="width:100%;height:100%;cursor:grab">'
+    +'<defs><linearGradient id="ocean" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#cfeedd"/><stop offset="1" stop-color="#e8f6ec"/></linearGradient></defs>'
+    +'<g transform="translate('+offX+','+offY+') scale('+scale+')" style="transform-origin:0 0">'
+    +'<rect width="'+W+'" height="'+H+'" fill="url(#ocean)"/>';
+  for(let g=0;g<=360;g+=30){ svg+='<line x1="'+ex(g-180)+'" y1="0" x2="'+ex(g-180)+'" y2="'+H+'" stroke="#9fd3b2" stroke-width="0.6" opacity="0.5"/>'; }
+  for(let g=0;g<=180;g+=30){ svg+='<line x1="0" y1="'+ey(g-90)+'" x2="'+W+'" y2="'+ey(g-90)+'" stroke="#9fd3b2" stroke-width="0.6" opacity="0.5"/>'; }
+  svg+='<g stroke="#3e9b6f" stroke-width="1.4">'; for(const c of CONTINENTS){ svg+='<path d="'+path(c)+'" fill="'+c.c+'" stroke-linejoin="round" opacity="0.95"/>'; } svg+='</g>';
+  svg+='<image xlink:href="'+mapImageSrc+'" href="'+mapImageSrc+'" x="0" y="0" width="'+W+'" height="'+H+'" preserveAspectRatio="none"/>';
+  svg+='<rect x="0" y="0" width="'+W+'" height="'+H+'" fill="none" stroke="#3e9b6f" stroke-width="1.4" opacity="0.9"/>';
+  if(scale>=DETAIL_MOUNT){ for(const r of RANGES){ const x=ex(r[1]),y=ey(r[2]); svg+='<g transform="translate('+x+','+y+')"><path d="M-5 6 L-2 0 L0 5 L2 -3 L5 6 Z" fill="#8a5a3b" stroke="#5c3a24" stroke-width="0.8"/><text x="0" y="-8" text-anchor="middle" font-size="7" fill="#5c3a24" font-weight="600">'+r[0]+'</text></g>'; } }
+  if(scale>=DETAIL_LABEL){ for(const c of CITIES){ const x=ex(c[1]),y=ey(c[2]); svg+='<circle cx="'+x+'" cy="'+y+'" r="2.2" fill="#2b6b45"/><text x="'+(x+4)+'" y="'+(y+3)+'" font-size="7" fill="#2b6b45">'+c[0]+'</text>'; } }
+  if(flights.length){ for(const f of flights.slice(0,60)){ const x1=ex(f.startLng),y1=ey(f.startLat),x2=ex(f.endLng),y2=ey(f.endLat),mx=(x1+x2)/2,my=Math.min(y1,y2)-Math.abs(x2-x1)*0.18; svg+='<path d="M'+x1+' '+y1+' Q '+mx+' '+my+' '+x2+' '+y2+'" fill="none" stroke="#4176e6" stroke-width="0.8" opacity="0.75" stroke-dasharray="3 2"/>'; } }
+  for(const q of quakes){ const x=ex(q.lng),y=ey(q.lat); svg+='<circle cx="'+x+'" cy="'+y+'" r="'+(q.maxRadius*2)+'" fill="none" stroke="'+q.color+'" stroke-width="1"/>'; }
+  for(const s of sats){ const x=ex(s.lng),y=ey(s.lat); svg+='<circle cx="'+x+'" cy="'+y+'" r="3" fill="#f2c94c" stroke="#fff" stroke-width="0.6"/>'; }
+  for(const v of vessels){ const x=ex(v.lng),y=ey(v.lat); svg+='<circle cx="'+x+'" cy="'+y+'" r="3.2" fill="#54d68f" stroke="#fff" stroke-width="0.6"/>'; }
+  svg+='</g></svg>';
+  mapRoot.innerHTML=svg;
+}
+
+function updateAmapOverlays(){
+  if(!amap) return;
+  if(amapOverlays.length){ amap.remove(amapOverlays); amapOverlays=[]; }
+  for(const f of flights){ const pl=new AMap.Polyline({path:[[f.startLng,f.startLat],[f.endLng,f.endLat]], strokeColor:'#4176e6', strokeWeight:3, strokeOpacity:0.85, lineJoin:'round', lineCap:'round', showDir:true, dirColor:'#4176e6'}); amap.add(pl); amapOverlays.push(pl); }
+  for(const q of quakes){ const r=Math.max(60000,q.maxRadius*200000); const c=new AMap.Circle({center:[q.lng,q.lat], radius:r, strokeColor:q.color, strokeOpacity:0.9, strokeWeight:1, fillColor:q.color, fillOpacity:0.18}); amap.add(c); amapOverlays.push(c); }
+  for(const s of sats){ const c=new AMap.Circle({center:[s.lng,s.lat], radius:40000, strokeColor:'#f2c94c', strokeOpacity:0.9, strokeWeight:1, fillColor:'#f2c94c', fillOpacity:0.6}); amap.add(c); amapOverlays.push(c); }
+  for(const v of vessels){ const c=new AMap.Circle({center:[v.lng,v.lat], radius:40000, strokeColor:'#54d68f', strokeOpacity:0.9, strokeWeight:1, fillColor:'#54d68f', fillOpacity:0.6}); amap.add(c); amapOverlays.push(c); }
+}
+
+function initAmap(){
+  if(window.AMap===undefined) return;
+  const cont=document.getElementById('amapContainer');
+  const root=document.getElementById('mapRoot');
+  try {
+    cont.style.display='block';
+    amap=new AMap.Map('amapContainer',{ viewMode:'2D', zoom:3, center:[105,30], resizeEnable:true, mapStyle:'amap://styles/whitesmoke' });
+    amap.on('complete',function(){
+      if(amapAuthFailed) return;   // 认证已失败，保留 SVG 兜底
+      amapReady=true;
+      root.style.display='none';
+      updateAmapOverlays();
+    });
+    // JS API 2.0 的 Scale 是插件，必须先 AMap.plugin 加载再实例化
+    AMap.plugin('AMap.Scale',function(){ amap.addControl(new AMap.Scale()); });
+  } catch(err) {
+    // 高德初始化失败（密钥/安全码错误等）：保留本地 SVG 兜底，避免白屏
+    console.error('AMap init failed: '+err);
+    amapFailover();
+  }
+}
+
+function amapFailover(){
+  amapReady=false; amapAuthFailed=true;
+  if(amap){ try{ amap.destroy(); }catch(e){} amap=null; }
+  const root=document.getElementById('mapRoot');
+  const cont=document.getElementById('amapContainer');
+  const hint=document.getElementById('hint');
+  if(root) root.style.display='block';
+  if(cont){ cont.style.display='none'; cont.innerHTML=''; }
+  if(hint) hint.textContent='高德密钥/安全码无效 · 已回退离线地图';
+  render2d();
+}
+
+function loadAmap(){
+  const hint=document.getElementById('hint');
+  if(!AMAP_KEY){ if(hint) hint.textContent='离线地图 · 未配置高德 Key'; return; }
+  if(!AMAP_SECURITY_CODE){
+    // 2021-12-02 后申请的 key 必须配合安全密钥，否则高德只给灰屏（INVALID_USER_SCODE）
+    if(hint) hint.textContent='离线地图 · 配置高德安全密钥后自动启用高德底图';
+    return;
+  }
+  // 必须在地图 JS 加载之前设置安全密钥
+  window._AMapSecurityConfig={ securityJsCode: AMAP_SECURITY_CODE };
+  if(window.AMap){ initAmap(); return; }
+  const s=document.createElement('script');
+  s.src='https://webapi.amap.com/maps?v=2.0&key='+encodeURIComponent(AMAP_KEY);
+  s.onload=function(){ initAmap(); };
+  s.onerror=function(){ /* 保持本地 SVG 兜底 */ };
+  document.head.appendChild(s);
+  setTimeout(function(){ if(!amapReady){ /* SDK 超时仍用 SVG */ } }, 8000);
+}
+
+function refresh(){
+  if(amapReady){ updateAmapOverlays(); }
+  else render2d();
+}
+
+document.getElementById('zoomIn').onclick=()=>{ if(amap) amap.setZoom(amap.getZoom()+1); else { scale=Math.min(6,scale*1.35); render2d(); } };
+document.getElementById('zoomOut').onclick=()=>{ if(amap) amap.setZoom(amap.getZoom()-1); else { scale=Math.max(0.8,scale/1.35); render2d(); } };
+document.getElementById('zoomReset').onclick=()=>{ if(amap){ amap.setZoom(3); amap.setCenter([105,30]); } else { scale=1;offX=0;offY=0; render2d(); } };
+let drag=null;
+mapRoot.addEventListener('mousedown',e=>{drag={x:e.clientX-offX*scale,y:e.clientY-offY*scale};});
+window.addEventListener('mousemove',e=>{ if(drag && !amapReady){ offX=(e.clientX-drag.x)/scale; offY=(e.clientY-drag.y)/scale; render2d(); } });
+window.addEventListener('mouseup',()=>{drag=null;});
+mapRoot.addEventListener('wheel',e=>{ if(amapReady) return; e.preventDefault(); scale=Math.min(6,Math.max(0.8,scale*(e.deltaY<0?1.15:0.87))); render2d(); },{passive:false});
+
+const LAYERS=[['flights','航班','#4176e6',true],['quakes','地震','#ff5f5f',true],['sats','卫星','#f2c94c',true],['vessels','船舶','#54d68f',false]];
+const state={}; LAYERS.forEach(l=>state[l[0]]=l[3]);
+const lay=document.getElementById('layers');
+LAYERS.forEach(l=>{ const c=document.createElement('div'); c.className='chip'+(l[3]?' on':''); c.innerHTML='<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:'+l[2]+';margin-right:5px"></span>'+l[1]; c.onclick=()=>{ state[l[0]]=!state[l[0]]; c.classList.toggle('on',state[l[0]]); refresh(); }; lay.appendChild(c); });
+
+const MAP_API=(window.DSH_MAP_API||'http://127.0.0.1:8085/api/map');
+function applyLayerFlags(d){
+  if(Array.isArray(d.flights)) flights=state.flights?d.flights:[];
+  if(Array.isArray(d.quakes)) quakes=state.quakes?d.quakes:[];
+  if(Array.isArray(d.sats)) sats=state.sats?d.sats:[];
+  if(Array.isArray(d.vessels)) vessels=state.vessels?d.vessels:[];
+}
+function loadData(){
+  fetch(MAP_API).then(r=>r.ok?r.json():null).then(d=>{ if(d){ applyLayerFlags(d); refresh(); } }).catch(function(){});
+  if(!quakes.length){ fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson').then(r=>r.json()).then(j=>{ quakes=j.features.slice(0,120).map(f=>{const c=f.geometry.coordinates;const m=f.properties.mag||2;return {lng:c[0],lat:c[1],color:m>=5?'#ff5f5f':'#ff9f6f',maxRadius:Math.min(3,0.25*m)};}); refresh(); }).catch(function(){}); }
+}
+
+function loadRemoteMapImage(){
+  try {
+    const img=new Image();
+    img.onload=function(){ mapImageSrc=MAP_IMAGE_REMOTE; render2d(); };
+    img.onerror=function(){ /* local fallback stays */ };
+    img.src=MAP_IMAGE_REMOTE;
+  } catch(e){ /* ignore */ }
+}
+
+render2d();
+loadData();
+loadRemoteMapImage();
+loadAmap();
+setInterval(loadData,60000);
+</script>
+</body>
+</html>

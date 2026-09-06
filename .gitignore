@@ -1,0 +1,21 @@
+# Android / Gradle 构建产物
+.gradle/
+build/
+**/build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+
+# 本机配置
+local.properties
+.idea/
+*.iml
+
+# 构建日志 / 临时产物
+*.log
+
+# 签名与凭据（含明文口令，绝不入库）
+keystore.properties
+release.jks
