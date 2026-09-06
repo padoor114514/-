@@ -381,6 +381,7 @@ fun SpineAgentApp() {
                     "workspace" -> WorkspaceScreen()
                     "agent" -> ChatScreen()
                     "map" -> NativeMapScreen()
+                    "db" -> DatabaseScreen()
                     else -> NativeMapScreen()
                 }
             }

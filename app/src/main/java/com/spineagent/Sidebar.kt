@@ -203,6 +203,7 @@ fun sidebarToggle() {
 @Composable
 fun ModuleNav() {
     NavModuleItem("map", "地图", Icons.Default.Public)
+    NavModuleItem("db", "数据库", Icons.Default.Dns)
     NavModuleItem("board", "任务看板", Icons.Default.ViewKanban)
     AgentNavItem()
     WorkspaceExpandItem()

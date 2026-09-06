@@ -4,7 +4,26 @@ import android.graphics.Color
 import android.view.ViewGroup
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -51,6 +70,9 @@ import com.amap.api.maps.model.Circle
 import com.amap.api.maps.model.CircleOptions
 import com.amap.api.maps.model.LatLng
 import com.amap.api.maps.model.Polyline
+import com.amap.api.maps.model.BitmapDescriptorFactory
+import com.amap.api.maps.model.Marker
+import com.amap.api.maps.model.MarkerOptions
 import com.amap.api.maps.model.PolylineOptions
 import com.google.gson.Gson
 import com.google.gson.JsonObject
@@ -96,6 +118,9 @@ private class NativeMapHolder {
     var mapView: MapView? = null
         private set
     private var aMap: AMap? = null
+    private val placeMarkers = mutableListOf<Marker>()
+    private var places: List<LocalEntry> = emptyList()
+    private var placeClick: ((LocalEntry) -> Unit)? = null
     private val flightLines = mutableListOf<Polyline>()
     private val quakeCircles = mutableListOf<Circle>()
     private val satCircles = mutableListOf<Circle>()
@@ -122,8 +147,52 @@ private class NativeMapHolder {
 
     fun unbind() {
         clearAll()
+        clearPlaces()
         aMap = null
         mapView = null
+    }
+
+    // ── 我的地点标记（数据库登记、含坐标的条目）──
+    fun setPlaces(list: List<LocalEntry>, onClick: (LocalEntry) -> Unit) {
+        places = list
+        val map = aMap ?: run { placeClick = onClick; return }
+        placeClick = onClick
+        removePlaceMarkers()
+        for (p in places) {
+            if (!p.hasCoords) continue
+            val hue = when (p.type) {
+                EntryType.PLACE.name -> BitmapDescriptorFactory.HUE_RED
+                EntryType.GAZETTEER.name -> BitmapDescriptorFactory.HUE_AZURE
+                else -> BitmapDescriptorFactory.HUE_VIOLET
+            }
+            val m = map.addMarker(
+                MarkerOptions().position(LatLng(p.lat!!, p.lng!!)).title(p.title)
+                    .icon(BitmapDescriptorFactory.defaultMarker(hue)).anchor(0.5f, 1f)
+            )
+            m?.setObject(p.id)
+            if (m != null) placeMarkers.add(m)
+        }
+        map.setOnMarkerClickListener { marker ->
+            val id = marker.getObject() as? Long ?: -1L
+            val hit = places.firstOrNull { it.id == id }
+            if (hit != null) { placeClick?.invoke(hit); true } else false
+        }
+    }
+
+    fun focus(e: LocalEntry) {
+        val a = aMap ?: return
+        if (e.hasCoords) a.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(e.lat!!, e.lng!!), 12f))
+    }
+
+    fun clearPlaces() {
+        removePlaceMarkers()
+        places = emptyList()
+        aMap?.setOnMarkerClickListener(null)
+    }
+
+    private fun removePlaceMarkers() {
+        placeMarkers.forEach { it.remove() }
+        placeMarkers.clear()
     }
 
     fun zoomIn() { aMap?.animateCamera(CameraUpdateFactory.zoomIn()) }
@@ -282,6 +351,15 @@ fun NativeMapScreen() {
     var st by remember { mutableStateOf(true) }
     var vs by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("高德地图 · 加载中…") }
+    val ctxMap = LocalContext.current
+    val db = remember { LocalDb(ctxMap) }
+    var places by remember { mutableStateOf<List<LocalEntry>>(emptyList()) }
+    var selected by remember { mutableStateOf<LocalEntry?>(null) }
+    var searchOpen by remember { mutableStateOf(false) }
+    var searchText by remember { mutableStateOf("") }
+    var placeOn by remember { mutableStateOf(true) }
+    var bioOn by remember { mutableStateOf(false) }   // 生物分布层默认不标出
+
 
     DisposableEffect(lifecycleOwner) {
         val obs = LifecycleEventObserver { _, event ->
@@ -300,8 +378,11 @@ fun NativeMapScreen() {
 
     LaunchedEffect(Unit) {
         while (isActive) {
+            val rows = withContext(Dispatchers.IO) { db.listWithCoords() }
+            places = rows
+            holder.setPlaces(if (placeOn) rows else emptyList()) { selected = it }
             loadMapData(holder) { status = it }
-            delay(60_000)
+            delay(30_000)
         }
     }
 
@@ -356,16 +437,28 @@ fun NativeMapScreen() {
             LayerChip("地震", 0xFFFF5F5F.toInt(), qk) { qk = !qk; holder.update(null, fl, qk, st, vs) }
             LayerChip("卫星", 0xFFF2C94C.toInt(), st) { st = !st; holder.update(null, fl, qk, st, vs) }
             LayerChip("船舶", 0xFF54D68F.toInt(), vs) { vs = !vs; holder.update(null, fl, qk, st, vs) }
+            LayerChip("地点", 0xFFE8543D.toInt(), placeOn) { placeOn = !placeOn; holder.setPlaces(if (placeOn) places else emptyList()) { selected = it } }
+            LayerChip("生物", 0xFF8A6AE8.toInt(), bioOn) { bioOn = !bioOn }
         }
 
-        Column(
+        Row(
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             ZoomBtn(Icons.Default.Add) { holder.zoomIn() }
             ZoomBtn(Icons.Default.Remove) { holder.zoomOut() }
             ZoomBtn(Icons.Default.RestartAlt) { holder.zoomReset() }
         }
+
+        PlaceSearchUi(
+            places = places,
+            searchOpen = searchOpen,
+            searchText = searchText,
+            onToggle = { searchOpen = !searchOpen; searchText = "" },
+            onSearch = { searchText = it },
+            onPick = { e -> holder.focus(e); selected = e; searchText = ""; searchOpen = false }
+        )
+        PlaceDetailPanel(selected, onClose = { selected = null })
     }
 }
 
@@ -393,5 +486,95 @@ private fun ZoomBtn(icon: ImageVector, onClick: () -> Unit) {
             .background(ComposeColor(0xB3FFFFFF))
     ) {
         Icon(icon, null, tint = ComposeColor(0xFF2B6B45), modifier = Modifier.size(17.dp))
+    }
+}
+
+// ── 地图搜索栏（搜我登记的数据库条目）──
+@Composable
+private fun BoxScope.PlaceSearchUi(
+    places: List<LocalEntry>,
+    searchOpen: Boolean,
+    searchText: String,
+    onToggle: () -> Unit,
+    onSearch: (String) -> Unit,
+    onPick: (LocalEntry) -> Unit
+) {
+    Surface(shape = CircleShape, color = ComposeColor(0xB3FFFFFF), modifier = Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 14.dp)) {
+        IconButton(onClick = onToggle) {
+            Icon(if (searchOpen) Icons.Default.Close else Icons.Default.Search,
+                "搜索地点", tint = ComposeColor(0xFF2B6B45), modifier = Modifier.size(19.dp))
+        }
+    }
+    if (searchOpen) {
+        Column(Modifier.align(Alignment.TopCenter).padding(top = 12.dp).fillMaxWidth(0.6f)) {
+            OutlinedTextField(value = searchText, onValueChange = onSearch,
+                placeholder = { Text("搜索我登记的地点 / 地方志…", fontSize = 13.sp) },
+                singleLine = true, modifier = Modifier.fillMaxWidth())
+            if (searchText.isNotBlank()) {
+                val hits = places.filter { it.title.contains(searchText, true) || it.body.contains(searchText, true) }
+                if (hits.isNotEmpty()) {
+                    LazyColumn(Modifier.fillMaxWidth().padding(top = 4.dp)
+                        .clip(RoundedCornerShape(12.dp)).background(ComposeColor(0xF5FFFFFF))) {
+                        items(hits, key = { it.id }) { e ->
+                            Row(Modifier.fillMaxWidth().clickable { onPick(e) }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Text(e.title, color = ComposeColor(0xFF1F4A36), fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                                Text(e.typeLabel, color = ComposeColor(0xFF7FAE92), fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── 地点详情面板：介绍 + 照片 + 来源 ──
+@Composable
+private fun BoxScope.PlaceDetailPanel(entry: LocalEntry?, onClose: () -> Unit) {
+    entry ?: return
+    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(10.dp)
+        .clip(RoundedCornerShape(16.dp)).background(ComposeColor(0xF7FFFFFF))) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(entry.title, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = ComposeColor(0xFF1F4A36))
+                    Text(entry.typeLabel + if (entry.hasCoords) " · " + String.format("%.4f, %.4f", entry.lat, entry.lng) else "",
+                        fontSize = 12.sp, color = ComposeColor(0xFF7FAE92))
+                }
+                IconButton(onClick = onClose) { Icon(Icons.Default.Close, "关闭", tint = ComposeColor(0xFF5F9678)) }
+            }
+            if (entry.body.isNotBlank()) {
+                Text(entry.body, fontSize = 14.sp, color = ComposeColor(0xFF23402F),
+                    modifier = Modifier.padding(top = 6.dp))
+            }
+            if (entry.photos.isNotEmpty()) {
+                Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    entry.photos.forEach { p ->
+                        val bmp = remember(p) {
+                            runCatching {
+                                val opts = BitmapFactory.Options().apply { inSampleSize = 3 }
+                                BitmapFactory.decodeFile(p, opts)
+                            }.getOrNull()
+                        }
+                        if (bmp != null) {
+                            Image(bmp.asImageBitmap(), contentDescription = null,
+                                modifier = Modifier.size(110.dp).clip(RoundedCornerShape(10.dp)),
+                                contentScale = ContentScale.Crop)
+                        }
+                    }
+                }
+            }
+            if (entry.source.isNotBlank()) {
+                Text("来源：" + entry.source, fontSize = 11.sp, color = ComposeColor(0xFF8AA99A),
+                    modifier = Modifier.padding(top = 6.dp))
+            }
+            TextButton(onClick = { AppUiState.module = "db" }) {
+                Text("在「数据库」中维护", color = ComposeColor(0xFF3E9B6F), fontSize = 12.sp)
+            }
+        }
     }
 }
