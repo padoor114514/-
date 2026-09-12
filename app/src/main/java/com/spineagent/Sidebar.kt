@@ -199,14 +199,12 @@ fun sidebarToggle() {
     else AppUiState.sidebarOpen = !AppUiState.sidebarOpen
 }
 
-// ── 模块导航：地图（默认）/ 工作区（若藻 · Harness）──
+// ── 模块导航：完全由插件注册表驱动（ctx.modules）──
 @Composable
 fun ModuleNav() {
-    NavModuleItem("map", "地图", Icons.Default.Public)
-    NavModuleItem("db", "数据库", Icons.Default.Dns)
-    NavModuleItem("board", "任务看板", Icons.Default.ViewKanban)
-    AgentNavItem()
-    WorkspaceExpandItem()
+    com.spineagent.plugin.Spine.ctx.modules.all().forEach { m ->
+        NavModuleItem(m)
+    }
 }
 
 @Composable
@@ -255,29 +253,38 @@ fun WorkspaceExpandItem() {
     }
 }
 
+/** 插件模块导航项：点击选中该插件的模块，长按触发插件声明的长按动作 */
 @Composable
-fun NavModuleItem(key: String, label: String, icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    val selected = AppUiState.module == key
+fun NavModuleItem(m: com.spineagent.plugin.ModuleDescriptor) {
+    val selected = AppUiState.module == m.id
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 10.dp).clip(RoundedCornerShape(8.dp))
             .background(if (selected) Color(0xFFE4F5EA) else Color.Transparent)
-            .clickable {
-                AppUiState.module = key
-                AppUiState.sidebarOpen = false
+            .pointerInput(m.id) {
+                detectTapGestures(
+                    onLongPress = { m.onLongPress?.invoke() },
+                    onTap = {
+                        AppUiState.module = m.id
+                        m.onSelect?.invoke()
+                        AppUiState.sidebarOpen = false
+                    }
+                )
             }
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, null, tint = if (selected) Color(0xFF3E9B6F) else Color(0xFF7FAE92), modifier = Modifier.size(20.dp))
+        Icon(m.icon, null, tint = if (selected) Color(0xFF3E9B6F) else Color(0xFF7FAE92), modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(10.dp))
         Text(
-            label,
+            m.title,
             color = if (selected) Color(0xFF3E9B6F) else Color(0xFF1F4A36),
             fontSize = 14.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
             modifier = Modifier.weight(1f)
         )
+        m.hint?.let { Text(it, fontSize = 10.sp, color = Color(0xFF7FAE92)) }
         if (selected) {
+            Spacer(Modifier.width(6.dp))
             Box(Modifier.size(6.dp).clip(CircleShape).background(Color(0xFF3E9B6F)))
         }
     }

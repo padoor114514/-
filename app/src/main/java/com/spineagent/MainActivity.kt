@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
+import com.spineagent.plugin.Spine
 import kotlinx.coroutines.*
 import okhttp3.*
 import java.util.concurrent.TimeUnit
@@ -149,6 +150,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 启动插件宿主：安装组合根里的全部内置插件（仿 DSH 组合包）
+        Spine.start(applicationContext)
         loadSettings()
         initTTS()
         setContent {
@@ -376,14 +379,12 @@ fun SpineAgentApp() {
         val sbPad = if (!AppUiState.sidebarCollapsed) maxWidth * 0.25f else 0.dp
         Box(Modifier.fillMaxSize()) {
             Box(Modifier.fillMaxSize().padding(start = sbPad)) {
-                when (AppUiState.module) {
-                    "board" -> BoardScreen()
-                    "workspace" -> WorkspaceScreen()
-                    "agent" -> ChatScreen()
-                    "map" -> NativeMapScreen()
-                    "db" -> DatabaseScreen()
-                    else -> NativeMapScreen()
-                }
+                // 模块渲染由插件注册表决定；切换模块＝切换插件
+                val modules = Spine.ctx.modules
+                val screen = (modules.byId(AppUiState.module) ?: modules.default)?.screen
+                if (screen != null) screen() else Text(
+                    "没有可用模块", color = Color(0xFF5F9678), fontSize = 14.sp
+                )
             }
             SidebarOverlay(true)
             if (AppUiState.miniOpen) AgentMiniWindow()
