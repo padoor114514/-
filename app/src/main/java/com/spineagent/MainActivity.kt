@@ -152,24 +152,26 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // 启动插件宿主：安装组合根里的全部内置插件（仿 DSH 组合包）
         Spine.start(applicationContext)
+        com.spineagent.ui.SkinState.init(applicationContext)
+        com.spineagent.ui.CursorState.init(applicationContext)
         loadSettings()
         initTTS()
         setContent {
-            MaterialTheme(
-                colorScheme = lightColorScheme(
-                    primary = Color(0xFF3E9B6F),
-                    onPrimary = Color(0xFFFFFFFF),
-                    secondary = Color(0xFF6BCBA0),
-                    background = Color(0xFFF4FAF5),
-                    surface = Color(0xFFF2FAF4),
-                    onBackground = Color(0xFF1F4A36),
-                    onSurface = Color(0xFF1F4A36),
-                    surfaceVariant = Color(0xFFE6F5EC),
-                    onSurfaceVariant = Color(0xFF5F9678),
-                    outline = Color(0x22000000),
-                    error = Color(0xFFEC1313)
-                )
-            ) { SpineAgentApp() }
+            val pal = com.spineagent.ui.SkinState.palette()
+            val scheme = if (pal.darkMap) darkColorScheme(
+                primary = pal.accent, onPrimary = pal.onAccent,
+                background = pal.bg, surface = pal.surface,
+                onBackground = pal.text, onSurface = pal.text,
+                surfaceVariant = pal.accentSoft, onSurfaceVariant = pal.textSub,
+                outline = pal.border, error = Color(0xFFEC1313)
+            ) else lightColorScheme(
+                primary = pal.accent, onPrimary = pal.onAccent,
+                secondary = pal.accent, background = pal.bg, surface = pal.surface,
+                onBackground = pal.text, onSurface = pal.text,
+                surfaceVariant = pal.accentSoft, onSurfaceVariant = pal.textSub,
+                outline = pal.border, error = Color(0xFFEC1313)
+            )
+            MaterialTheme(colorScheme = scheme) { SpineAgentApp() }
         }
     }
 

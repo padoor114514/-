@@ -91,13 +91,14 @@ fun DatabaseScreen() {
     LaunchedEffect(query, filter) { reload() }
     LaunchedEffect(Unit) { reload() }
 
-    Box(Modifier.fillMaxSize().background(Color(0xFFEFF9F2))) {
+    val pal = com.spineagent.ui.SkinState.palette()
+    Box(Modifier.fillMaxSize().background(pal.bg)) {
         Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
             Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("数据库", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F4A36),
+                Text("数据库", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = pal.text,
                     modifier = Modifier.weight(1f))
                 IconButton(onClick = { editor = LocalEntry() }) {
-                    Icon(Icons.Default.Add, "新增", tint = Color(0xFF3E9B6F))
+                    Icon(Icons.Default.Add, "新增", tint = pal.accent)
                 }
             }
             OutlinedTextField(
@@ -139,8 +140,9 @@ fun DatabaseScreen() {
 
 @Composable
 private fun FilterPill(label: String, on: Boolean, onClick: () -> Unit) {
-    val bg = if (on) Color(0xFF3E9B6F) else Color(0xFFFFFFFF)
-    val fg = if (on) Color.White else Color(0xFF5F9678)
+    val pal = com.spineagent.ui.SkinState.palette()
+    val bg = if (on) pal.accent else pal.surface
+    val fg = if (on) pal.onAccent else pal.textSub
     Text(label, color = fg, fontSize = 13.sp,
         modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(bg).clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 6.dp))
@@ -148,17 +150,18 @@ private fun FilterPill(label: String, on: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun EntryRow(e: LocalEntry, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White)
+    val pal = com.spineagent.ui.SkinState.palette()
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(pal.surface)
         .clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        Text(e.typeLabel, fontSize = 11.sp, color = Color(0xFF3E9B6F),
-            modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Color(0xFFE4F5EA))
+        Text(e.typeLabel, fontSize = 11.sp, color = pal.accent,
+            modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(pal.accentSoft)
                 .padding(horizontal = 6.dp, vertical = 2.dp))
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(e.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1F4A36), maxLines = 1)
+            Text(e.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = pal.text, maxLines = 1)
             Text(e.body.replace("\n", " ").ifBlank { "（暂无正文）" }.take(48),
-                fontSize = 12.sp, color = Color(0xFF7FAE92), maxLines = 1)
+                fontSize = 12.sp, color = pal.textSub, maxLines = 1)
         }
         if (e.hasCoords) Text("📍", fontSize = 14.sp)
         if (e.photos.isNotEmpty()) Text("🖼" + e.photos.size, fontSize = 12.sp, color = Color(0xFF7FAE92))
@@ -190,12 +193,13 @@ private fun EntryEditor(entry: LocalEntry, db: LocalDb, onClose: () -> Unit) {
         if (uri != null) addPhoto(uri)
     }
 
-    Column(Modifier.fillMaxSize().background(Color(0xFFEFF9F2)).verticalScroll(rememberScrollState())
+    val pal = com.spineagent.ui.SkinState.palette()
+    Column(Modifier.fillMaxSize().background(pal.bg).verticalScroll(rememberScrollState())
         .padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onClose) { Icon(Icons.Default.ArrowBack, "返回", tint = Color(0xFF1F4A36)) }
+            IconButton(onClick = onClose) { Icon(Icons.Default.ArrowBack, "返回", tint = pal.text) }
             Text(if (e.id == 0L) "新增登记" else "编辑 · " + e.title, fontSize = 18.sp,
-                fontWeight = FontWeight.Bold, color = Color(0xFF1F4A36))
+                fontWeight = FontWeight.Bold, color = pal.text)
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

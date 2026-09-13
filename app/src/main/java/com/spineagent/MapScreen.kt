@@ -60,6 +60,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -92,6 +93,11 @@ import com.spineagent.plugin.MapLayerApi
 import com.spineagent.plugin.Spine
 import com.spineagent.plugin.SpineContext
 import com.spineagent.plugin.renderEnabled
+import android.graphics.Path
+import com.spineagent.ui.CursorState
+import com.spineagent.ui.CursorStyle
+import com.spineagent.ui.Skin
+import com.spineagent.ui.SkinState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -146,20 +152,109 @@ private fun dotDescriptor(color: Int, density: Float): BitmapDescriptor {
     return BitmapDescriptorFactory.fromBitmap(bmp)
 }
 
-private fun crosshairDescriptor(density: Float): BitmapDescriptor {
-    val s = (34 * density).toInt().coerceAtLeast(28)
+/**
+ * 待确认光标：5 种可切换样式，全部自绘（不依赖 SDK 图标资源）。
+ * phase 用于雷达样式的呼吸环动画（0..2）。
+ */
+private fun cursorDescriptor(style: CursorStyle, density: Float, colorArgb: Int, phase: Int): BitmapDescriptor {
+    val s = (52 * density).toInt().coerceAtLeast(44)
     val bmp = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
     val cv = Canvas(bmp)
-    val p = Paint(Paint.ANTI_ALIAS_FLAG)
     val c = s / 2f
-    p.style = Paint.Style.STROKE
-    p.strokeWidth = 3f * density
-    p.color = 0xFFE08A3C.toInt()
-    cv.drawCircle(c, c, c - 3f * density, p)
-    cv.drawLine(c, 2f * density, c, s - 2f * density, p)
-    cv.drawLine(2f * density, c, s - 2f * density, c, p)
-    p.style = Paint.Style.FILL
-    cv.drawCircle(c, c, 2.5f * density, p)
+    val d = density
+    val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.style = Paint.Style.STROKE }
+    val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.style = Paint.Style.FILL }
+    val halo = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        this.style = Paint.Style.STROKE; strokeWidth = 4f * d; color = 0x59FFFFFF
+    }
+    when (style) {
+        CursorStyle.CROSSHAIR -> {
+            val r = 12.5f * d
+            halo.strokeWidth = 3.2f * d
+            cv.drawCircle(c, c, r, halo)
+            stroke.strokeWidth = 2.6f * d; stroke.color = colorArgb
+            cv.drawCircle(c, c, r, stroke)
+            stroke.strokeWidth = 2.2f * d
+            stroke.strokeCap = Paint.Cap.ROUND
+            listOf(0f, 90f, 180f, 270f).forEach { a ->
+                val rad = Math.toRadians(a.toDouble())
+                val x1 = c + (r + 2.5f * d) * kotlin.math.cos(rad).toFloat()
+                val y1 = c + (r + 2.5f * d) * kotlin.math.sin(rad).toFloat()
+                val x2 = c + (r + 6.5f * d) * kotlin.math.cos(rad).toFloat()
+                val y2 = c + (r + 6.5f * d) * kotlin.math.sin(rad).toFloat()
+                cv.drawLine(x1, y1, x2, y2, stroke)
+            }
+            fill.color = colorArgb
+            cv.drawCircle(c, c, 2.4f * d, fill)
+        }
+        CursorStyle.PIN -> {
+            val tipY = s - 3f * d
+            val cy = c - 7f * d
+            val r = 9.5f * d
+            val path = Path().apply {
+                moveTo(c - 7.5f * d, cy + 3f * d)
+                lineTo(c + 7.5f * d, cy + 3f * d)
+                lineTo(c, tipY)
+                close()
+            }
+            fill.color = colorArgb
+            cv.drawPath(path, fill)
+            cv.drawCircle(c, cy, r + 1.6f * d, halo)
+            cv.drawCircle(c, cy, r, fill)
+            fill.color = 0xFFFFFFFF.toInt()
+            cv.drawCircle(c, cy, 3.6f * d, fill)
+        }
+        CursorStyle.RADAR -> {
+            val pulseR = (19f + phase * 3.5f) * d
+            val pulse = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                this.style = Paint.Style.STROKE; strokeWidth = 1.6f * d
+                color = colorArgb; alpha = (95 - phase * 30).coerceAtLeast(25)
+            }
+            cv.drawCircle(c, c, pulseR, pulse)
+            halo.strokeWidth = 3.2f * d
+            cv.drawCircle(c, c, 13.5f * d, halo)
+            stroke.strokeWidth = 2.4f * d; stroke.color = colorArgb
+            stroke.strokeCap = Paint.Cap.ROUND
+            cv.drawCircle(c, c, 13.5f * d, stroke)
+            listOf(0f, 90f, 180f, 270f).forEach { a ->
+                val rad = Math.toRadians(a.toDouble())
+                val x1 = c + 13.5f * d * kotlin.math.cos(rad).toFloat()
+                val y1 = c + 13.5f * d * kotlin.math.sin(rad).toFloat()
+                val x2 = c + 18f * d * kotlin.math.cos(rad).toFloat()
+                val y2 = c + 18f * d * kotlin.math.sin(rad).toFloat()
+                cv.drawLine(x1, y1, x2, y2, stroke)
+            }
+            fill.color = colorArgb
+            cv.drawCircle(c, c, 3f * d, fill)
+        }
+        CursorStyle.FINDER -> {
+            val b = 15f * d
+            val len = 8f * d
+            val cap = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                this.style = Paint.Style.STROKE; strokeWidth = 3f * d
+                strokeCap = Paint.Cap.ROUND; color = colorArgb
+            }
+            fun corner(sx: Float, sy: Float) {
+                cv.drawLine(c + sx * b, c + sy * b, c + sx * (b - len), c + sy * b, cap)
+                cv.drawLine(c + sx * b, c + sy * b, c + sx * b, c + sy * (b - len), cap)
+            }
+            corner(-1f, -1f); corner(1f, -1f); corner(-1f, 1f); corner(1f, 1f)
+            stroke.strokeWidth = 2.6f * d; stroke.color = colorArgb
+            stroke.strokeCap = Paint.Cap.ROUND
+            cv.drawLine(c - 7f * d, c, c + 7f * d, c, stroke)
+            cv.drawLine(c, c - 7f * d, c, c + 7f * d, stroke)
+            fill.color = colorArgb
+            cv.drawCircle(c, c, 1.8f * d, fill)
+        }
+        CursorStyle.SEAL -> {
+            halo.strokeWidth = 3f * d
+            cv.drawCircle(c, c, 12f * d, halo)
+            stroke.strokeWidth = 3.6f * d; stroke.color = colorArgb
+            cv.drawCircle(c, c, 11.5f * d, stroke)
+            fill.color = colorArgb
+            cv.drawCircle(c, c, 2.8f * d, fill)
+        }
+    }
     return BitmapDescriptorFactory.fromBitmap(bmp)
 }
 
@@ -170,13 +265,17 @@ private class NativeMapHolder : MapLayerApi {
     private val overlays = LinkedHashMap<String, MutableList<Any>>()
     private val cursorMarkers = mutableListOf<Marker>()
     private var cursorTap: (() -> Unit)? = null
+    var cursorColor = 0xFFE08A3C.toInt()
+    var cursorStyle: CursorStyle = CursorStyle.CROSSHAIR
+    var cursorPhase: Int = 0
     var onMapTap: ((Double, Double, Float, Float) -> Unit)? = null
     var redraw: (() -> Unit)? = null
+    private var darkMap = false
 
     fun bind(v: MapView) {
         mapView = v
         aMap = v.map.apply {
-            mapType = AMap.MAP_TYPE_NORMAL
+            mapType = if (darkMap) AMap.MAP_TYPE_NIGHT else AMap.MAP_TYPE_NORMAL
             uiSettings.isZoomControlsEnabled = false
             uiSettings.isScaleControlsEnabled = false
             uiSettings.isRotateGesturesEnabled = false
@@ -204,6 +303,12 @@ private class NativeMapHolder : MapLayerApi {
         aMap?.setOnMapClickListener(null)
         aMap = null
         mapView = null
+    }
+
+    /** 切换皮肤时同步地图底图（夜航=夜间底图） */
+    fun applySkin(dark: Boolean) {
+        darkMap = dark
+        aMap?.mapType = if (dark) AMap.MAP_TYPE_NIGHT else AMap.MAP_TYPE_NORMAL
     }
 
     fun zoomIn() { aMap?.animateCamera(CameraUpdateFactory.zoomIn()) }
@@ -268,9 +373,10 @@ private class NativeMapHolder : MapLayerApi {
         val map = aMap ?: return
         clearCursor()
         val dens = mapView?.resources?.displayMetrics?.density ?: 1f
+        val anchorY = if (cursorStyle == CursorStyle.PIN) 1f else 0.5f
         val m = map.addMarker(
             MarkerOptions().position(LatLng(lat, lng)).title("待确认点位")
-                .icon(crosshairDescriptor(dens)).anchor(0.5f, 0.5f)
+                .icon(cursorDescriptor(cursorStyle, dens, cursorColor, cursorPhase)).anchor(0.5f, anchorY)
         ) ?: return
         m.setObject(cursorTap)          // 点光标本身 = 确认添加
         cursorMarkers.add(m)
@@ -357,8 +463,27 @@ private suspend fun reloadPlaces(ctx: SpineContext) {
 fun NativeMapScreen() {
     val ctx = Spine.ctx
     val ui = ctx.mapUi
+    val pal = SkinState.palette()
     val holder = remember { NativeMapHolder() }
     val lifecycleOwner = LocalLifecycleOwner.current
+    // 皮肤/光标样式切换：同步底图、光标颜色与样式
+    LaunchedEffect(SkinState.current, CursorState.current) {
+        holder.applySkin(pal.darkMap)
+        holder.cursorColor = pal.cursor.toArgb()
+        holder.cursorStyle = CursorState.current
+        val c = ui.cursorPoint
+        if (c != null) holder.setCursor(c.first, c.second)
+    }
+    // 雷达样式的呼吸环
+    LaunchedEffect(CursorState.current, ui.cursorPoint) {
+        if (CursorState.current != CursorStyle.RADAR) return@LaunchedEffect
+        while (isActive && ui.cursorPoint != null) {
+            delay(430)
+            holder.cursorPhase = (holder.cursorPhase + 1) % 3
+            val c = ui.cursorPoint ?: break
+            holder.setCursor(c.first, c.second)
+        }
+    }
 
     remember {
         ctx.mapLayers.all().forEach { l -> if (!ui.layers.containsKey(l.id)) ui.layers[l.id] = l.defaultOn }
@@ -405,7 +530,7 @@ fun NativeMapScreen() {
     LaunchedEffect(ui.placesVersion) { reloadPlaces(ctx); holder.redraw?.invoke() }
     LaunchedEffect(ui.places) { holder.redraw?.invoke() }
 
-    Box(Modifier.fillMaxSize().background(ComposeColor(0xFFDFF2E4))) {
+    Box(Modifier.fillMaxSize().background(pal.bg)) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { c ->
@@ -428,11 +553,11 @@ fun NativeMapScreen() {
             modifier = Modifier.align(Alignment.TopStart).padding(start = 14.dp, top = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Default.Public, null, tint = ComposeColor(0xFF3E9B6F), modifier = Modifier.size(22.dp))
+            Icon(Icons.Default.Public, null, tint = pal.accent, modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(8.dp))
             Column {
-                Text("世界地图", color = ComposeColor(0xFF1F4A36), fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                Text(ui.status, color = ComposeColor(0xFF5F9678), fontSize = 11.sp, maxLines = 1)
+                Text("世界地图", color = pal.text, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                Text(ui.status, color = pal.textSub, fontSize = 11.sp, maxLines = 1)
             }
         }
 
@@ -491,16 +616,18 @@ private fun BoxScope.CursorConfirmCard(
     onCancel: () -> Unit
 ) {
     if (point == null) return
+    val pal = SkinState.palette()
     Surface(
-        shape = RoundedCornerShape(14.dp), color = ComposeColor(0xF2FFFFFF),
+        shape = RoundedCornerShape(14.dp), color = ComposeColor(pal.panelAlpha),
+        border = androidx.compose.foundation.BorderStroke(1.dp, pal.border),
         modifier = Modifier.align(Alignment.TopCenter).padding(top = 56.dp)
     ) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("✛ 待确认：" + String.format("%.5f, %.5f", point.first, point.second),
-                fontSize = 12.sp, color = ComposeColor(0xFF1F4A36))
+                fontSize = 12.sp, color = pal.text)
             Spacer(Modifier.width(10.dp))
-            TextButton(onClick = { onConfirm(point) }) { Text("确认添加", fontSize = 13.sp) }
-            TextButton(onClick = onCancel) { Text("取消", fontSize = 13.sp, color = ComposeColor(0xFF7FAE92)) }
+            TextButton(onClick = { onConfirm(point) }) { Text("确认添加", fontSize = 13.sp, color = pal.accent) }
+            TextButton(onClick = onCancel) { Text("取消", fontSize = 13.sp, color = pal.textSub) }
         }
     }
 }
@@ -515,7 +642,7 @@ private fun BoxScope.AddPointDialog(point: Pair<Double, Double>?, onCancel: () -
         text = {
             Column {
                 Text("坐标 " + String.format("%.5f, %.5f", point.first, point.second),
-                    fontSize = 12.sp, color = ComposeColor(0xFF7FAE92))
+                    fontSize = 12.sp, color = SkinState.palette().textSub)
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(value = name, onValueChange = { name = it },
                     label = { Text("地点名称") }, singleLine = true)
@@ -534,11 +661,12 @@ private fun BoxScope.AddPointDialog(point: Pair<Double, Double>?, onCancel: () -
 private fun BoxScope.PlaceSearchUi(places: List<LocalEntry>, onPick: (LocalEntry) -> Unit) {
     var open by remember { mutableStateOf(false) }
     var text by remember { mutableStateOf("") }
-    Surface(shape = CircleShape, color = ComposeColor(0xB3FFFFFF),
+    val pal = SkinState.palette()
+    Surface(shape = CircleShape, color = ComposeColor(pal.panelAlpha),
         modifier = Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 14.dp)) {
         IconButton(onClick = { open = !open; if (!open) text = "" }) {
             Icon(if (open) Icons.Default.Close else Icons.Default.Search, "搜索地点",
-                tint = ComposeColor(0xFF2B6B45), modifier = Modifier.size(19.dp))
+                tint = pal.accent, modifier = Modifier.size(19.dp))
         }
     }
     if (!open) return
@@ -550,14 +678,14 @@ private fun BoxScope.PlaceSearchUi(places: List<LocalEntry>, onPick: (LocalEntry
             val hits = places.filter { it.title.contains(text, true) || it.body.contains(text, true) }
             if (hits.isNotEmpty()) {
                 LazyColumn(Modifier.fillMaxWidth().padding(top = 4.dp)
-                    .clip(RoundedCornerShape(12.dp)).background(ComposeColor(0xF5FFFFFF))) {
+                    .clip(RoundedCornerShape(12.dp)).background(ComposeColor(pal.panelAlpha))) {
                     items(hits, key = { it.id }) { e ->
                         Row(Modifier.fillMaxWidth().clickable { onPick(e); open = false; text = "" }
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically) {
-                            Text(e.title, color = ComposeColor(0xFF1F4A36), fontSize = 14.sp,
+                            Text(e.title, color = pal.text, fontSize = 14.sp,
                                 fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                            Text(e.typeLabel, color = ComposeColor(0xFF7FAE92), fontSize = 11.sp)
+                            Text(e.typeLabel, color = pal.textSub, fontSize = 11.sp)
                         }
                     }
                 }
@@ -585,21 +713,22 @@ private fun BoxScope.PlaceDetailPanel(entry: LocalEntry?, ctx: SpineContext, onC
             ctx.mapUi.places = ctx.mapUi.places.map { if (it.id == upd.id) upd else it }
         }
     }
+    val pal = SkinState.palette()
     Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(10.dp).zIndex(5f)
-        .clip(RoundedCornerShape(16.dp)).background(ComposeColor(0xF7FFFFFF))) {
+        .clip(RoundedCornerShape(16.dp)).background(ComposeColor(pal.panelAlpha))) {
         Column(Modifier.fillMaxWidth().padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(entry.title, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = ComposeColor(0xFF1F4A36))
+                    Text(entry.title, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = pal.text)
                     Text(entry.typeLabel + if (entry.hasCoords)
                         " · " + String.format("%.4f, %.4f", entry.lat, entry.lng) else "",
-                        fontSize = 12.sp, color = ComposeColor(0xFF7FAE92))
+                        fontSize = 12.sp, color = pal.textSub)
                 }
-                IconButton(onClick = onClose) { Icon(Icons.Default.Close, "关闭", tint = ComposeColor(0xFF5F9678)) }
+                IconButton(onClick = onClose) { Icon(Icons.Default.Close, "关闭", tint = pal.textSub) }
             }
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
                 if (entry.body.isNotBlank()) {
-                    Text(entry.body, fontSize = 14.sp, color = ComposeColor(0xFF23402F), modifier = Modifier.padding(top = 6.dp))
+                    Text(entry.body, fontSize = 14.sp, color = pal.text, modifier = Modifier.padding(top = 6.dp))
                 }
                 if (entry.photos.isNotEmpty()) {
                     Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 8.dp),
@@ -620,7 +749,7 @@ private fun BoxScope.PlaceDetailPanel(entry: LocalEntry?, ctx: SpineContext, onC
                     }
                 }
                 if (entry.source.isNotBlank()) {
-                    Text("来源：" + entry.source, fontSize = 11.sp, color = ComposeColor(0xFF8AA99A),
+                    Text("来源：" + entry.source, fontSize = 11.sp, color = pal.textSub.copy(alpha = 0.8f),
                         modifier = Modifier.padding(top = 6.dp))
                 }
             }
@@ -637,13 +766,13 @@ private fun BoxScope.PlaceDetailPanel(entry: LocalEntry?, ctx: SpineContext, onC
                         ctx.mapUi.places = ctx.mapUi.places.map { if (it.id == upd.id) upd else it }
                         quick = ""
                     }
-                }) { Icon(Icons.Default.Save, "保存补充", tint = ComposeColor(0xFF3E9B6F), modifier = Modifier.size(20.dp)) }
+                }) { Icon(Icons.Default.Save, "保存补充", tint = pal.accent, modifier = Modifier.size(20.dp)) }
                 IconButton(onClick = { picker.launch(arrayOf("image/*")) }) {
-                    Icon(Icons.Default.PhotoCamera, "加照片", tint = ComposeColor(0xFF3E9B6F), modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.PhotoCamera, "加照片", tint = pal.accent, modifier = Modifier.size(20.dp))
                 }
             }
             TextButton(onClick = { AppUiState.module = "db" }, modifier = Modifier.align(Alignment.End)) {
-                Text("在「数据库」完整编辑", color = ComposeColor(0xFF3E9B6F), fontSize = 12.sp)
+                Text("在「数据库」完整编辑", color = pal.accent, fontSize = 12.sp)
             }
         }
     }
@@ -651,15 +780,16 @@ private fun BoxScope.PlaceDetailPanel(entry: LocalEntry?, ctx: SpineContext, onC
 
 @Composable
 private fun LayerChip(label: String, rgb: Int, on: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val pal = SkinState.palette()
     val bg = when {
-        !enabled -> ComposeColor(0x66FFFFFF)
-        on -> ComposeColor(0xFF3E9B6F)
-        else -> ComposeColor(0x99FFFFFF)
+        !enabled -> pal.surfaceSoft
+        on -> pal.accent
+        else -> ComposeColor(pal.chipAlphaBg)
     }
     val fg = when {
-        !enabled -> ComposeColor(0xFFB9C9BF)
-        on -> ComposeColor.White
-        else -> ComposeColor(0xFF5F9678)
+        !enabled -> pal.textSub.copy(alpha = 0.5f)
+        on -> pal.onAccent
+        else -> pal.textSub
     }
     Row(
         Modifier.clip(RoundedCornerShape(999.dp)).background(bg)
@@ -675,10 +805,11 @@ private fun LayerChip(label: String, rgb: Int, on: Boolean, enabled: Boolean, on
 
 @Composable
 private fun ZoomBtn(icon: ImageVector, onClick: () -> Unit) {
+    val pal = SkinState.palette()
     IconButton(
         onClick = onClick,
-        modifier = Modifier.size(38.dp).clip(RoundedCornerShape(10.dp)).background(ComposeColor(0xB3FFFFFF))
+        modifier = Modifier.size(38.dp).clip(RoundedCornerShape(10.dp)).background(ComposeColor(pal.panelAlpha))
     ) {
-        Icon(icon, null, tint = ComposeColor(0xFF2B6B45), modifier = Modifier.size(18.dp))
+        Icon(icon, null, tint = pal.accent, modifier = Modifier.size(18.dp))
     }
 }

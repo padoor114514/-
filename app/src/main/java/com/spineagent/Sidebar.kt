@@ -135,7 +135,7 @@ fun SidebarOverlay(isLandscape: Boolean) {
                 Modifier
                     .fillMaxHeight()
                     .then(if (isLandscape) Modifier.fillMaxWidth(0.25f) else Modifier.width(276.dp))
-                    .background(Color(0xFFEFF9F2))
+                    .background(com.spineagent.ui.SkinState.palette().bg)
                     .drawBehind {
                         drawLine(
                             color = Color(0x1A000000),
@@ -163,13 +163,13 @@ fun SidebarContent() {
                 }
             } else {
                 Box(Modifier.size(30.dp).clip(RoundedCornerShape(9.dp))
-                    .background(Color(0xFF3E9B6F)), contentAlignment = Alignment.Center) {
+                    .background(com.spineagent.ui.SkinState.palette().accent), contentAlignment = Alignment.Center) {
                     Text("◈", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 }
                 Spacer(Modifier.width(8.dp))
             }
             Text(if (view == "settings") "连接设置" else "大地巡礼",
-                fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F4A36),
+                fontSize = 15.sp, fontWeight = FontWeight.Bold, color = com.spineagent.ui.SkinState.palette().text,
                 modifier = Modifier.weight(1f))
             if (view == "main") {
                 IconButton(onClick = { AppUiState.wsReloadTick++ }) {
@@ -204,6 +204,50 @@ fun sidebarToggle() {
 fun ModuleNav() {
     com.spineagent.plugin.Spine.ctx.modules.all().forEach { m ->
         NavModuleItem(m)
+    }
+    SkinSwitcher()
+}
+
+/** 皮肤切换：三套视觉方案现场切换（持久化到 SharedPreferences） */
+@Composable
+fun SkinSwitcher() {
+    val pal = com.spineagent.ui.SkinState.palette()
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
+        Text("外观", fontSize = 11.sp, color = pal.textSub)
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            com.spineagent.ui.Skin.entries.forEach { s ->
+                val on = com.spineagent.ui.SkinState.current == s
+                Text(
+                    s.label,
+                    fontSize = 12.sp,
+                    color = if (on) pal.onAccent else pal.textSub,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (on) pal.accent else pal.surfaceSoft)
+                        .clickable { com.spineagent.ui.SkinState.set(s) }
+                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Text("光标", fontSize = 11.sp, color = pal.textSub)
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            com.spineagent.ui.CursorStyle.entries.forEach { cs ->
+                val on = com.spineagent.ui.CursorState.current == cs
+                Text(
+                    cs.label,
+                    fontSize = 12.sp,
+                    color = if (on) pal.onAccent else pal.textSub,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (on) pal.accent else pal.surfaceSoft)
+                        .clickable { com.spineagent.ui.CursorState.set(cs) }
+                        .padding(horizontal = 9.dp, vertical = 5.dp)
+                )
+            }
+        }
     }
 }
 
@@ -257,9 +301,10 @@ fun WorkspaceExpandItem() {
 @Composable
 fun NavModuleItem(m: com.spineagent.plugin.ModuleDescriptor) {
     val selected = AppUiState.module == m.id
+    val pal = com.spineagent.ui.SkinState.palette()
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 10.dp).clip(RoundedCornerShape(8.dp))
-            .background(if (selected) Color(0xFFE4F5EA) else Color.Transparent)
+            .background(if (selected) pal.accentSoft else Color.Transparent)
             .pointerInput(m.id) {
                 detectTapGestures(
                     onLongPress = { m.onLongPress?.invoke() },
@@ -273,19 +318,19 @@ fun NavModuleItem(m: com.spineagent.plugin.ModuleDescriptor) {
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(m.icon, null, tint = if (selected) Color(0xFF3E9B6F) else Color(0xFF7FAE92), modifier = Modifier.size(20.dp))
+        Icon(m.icon, null, tint = if (selected) pal.accent else pal.textSub, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(10.dp))
         Text(
             m.title,
-            color = if (selected) Color(0xFF3E9B6F) else Color(0xFF1F4A36),
+            color = if (selected) pal.accent else pal.text,
             fontSize = 14.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
             modifier = Modifier.weight(1f)
         )
-        m.hint?.let { Text(it, fontSize = 10.sp, color = Color(0xFF7FAE92)) }
+        m.hint?.let { Text(it, fontSize = 10.sp, color = pal.textSub) }
         if (selected) {
             Spacer(Modifier.width(6.dp))
-            Box(Modifier.size(6.dp).clip(CircleShape).background(Color(0xFF3E9B6F)))
+            Box(Modifier.size(6.dp).clip(CircleShape).background(pal.accent))
         }
     }
 }
