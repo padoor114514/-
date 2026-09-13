@@ -71,6 +71,10 @@ class MapUiState {
     var cursorScreen by mutableStateOf<Pair<Float, Float>?>(null)
     /** 第二阶段：已确认、等待命名入库的点位（弹出命名对话框） */
     var pendingPoint by mutableStateOf<Pair<Double, Double>?>(null)      // lat, lng
+    /** 当前光标若来自 POI 点击，这里记录 POI 名称（用于预填命名） */
+    var poiLabel by mutableStateOf<String?>(null)
+    /** 命名对话框的预填名称 */
+    var pendingName by mutableStateOf("")
     /** 图层的开关状态：layerId -> on */
     val layers = mutableStateMapOf<String, Boolean>()
     /** 最近一次 /api/map 数据 */

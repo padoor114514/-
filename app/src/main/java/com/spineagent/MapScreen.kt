@@ -269,6 +269,8 @@ private class NativeMapHolder : MapLayerApi {
     var cursorStyle: CursorStyle = CursorStyle.CROSSHAIR
     var cursorPhase: Int = 0
     var onMapTap: ((Double, Double, Float, Float) -> Unit)? = null
+    /** POI（城市/地名标签）点击：与地图点击共用一套派发 */
+    var onPoiTap: ((String, Double, Double, Float, Float) -> Unit)? = null
     var redraw: (() -> Unit)? = null
     private var darkMap = false
 
@@ -284,6 +286,12 @@ private class NativeMapHolder : MapLayerApi {
             setOnMapClickListener { ll ->
                 val p = projection.toScreenLocation(ll)
                 onMapTap?.invoke(ll.latitude, ll.longitude, p.x.toFloat(), p.y.toFloat())
+            }
+            // 高德 POI（城市名/兴趣点标签）点击是独立回调，必须注册，否则点那里没反应
+            setOnPOIClickListener { poi ->
+                val ll = poi?.coordinate ?: return@setOnPOIClickListener
+                val p = projection.toScreenLocation(ll)
+                onPoiTap?.invoke(poi.name ?: "", ll.latitude, ll.longitude, p.x.toFloat(), p.y.toFloat())
             }
             setOnMarkerClickListener { m ->
                 val cb = m.getObject()
@@ -301,6 +309,7 @@ private class NativeMapHolder : MapLayerApi {
         clearAllLayers()
         aMap?.setOnMarkerClickListener(null)
         aMap?.setOnMapClickListener(null)
+        aMap?.setOnPOIClickListener(null)
         aMap = null
         mapView = null
     }
@@ -491,7 +500,14 @@ fun NativeMapScreen() {
     }
     DisposableEffect(Unit) {
         holder.redraw = { ctx.mapLayers.renderEnabled(holder, ui.layers) }
-        holder.onMapTap = { lat, lng, sx, sy -> ctx.mapTaps.dispatch(lat, lng, sx, sy) }
+        holder.onMapTap = { lat, lng, sx, sy ->
+            ui.poiLabel = null                     // 点空白地图：清掉 POI 归属
+            ctx.mapTaps.dispatch(lat, lng, sx, sy)
+        }
+        holder.onPoiTap = { name, lat, lng, sx, sy ->
+            ui.poiLabel = name.ifBlank { null }    // 点 POI：记住名称，供命名预填
+            ctx.mapTaps.dispatch(lat, lng, sx, sy)
+        }
         holder.setCursorTapHandler {
             val c = ui.cursorPoint
             val s = ui.cursorScreen
@@ -583,6 +599,7 @@ fun NativeMapScreen() {
 
         CursorConfirmCard(
             point = ui.cursorPoint,
+            poiName = ui.poiLabel,
             onConfirm = { p ->
                 val s = ctx.mapUi.cursorScreen
                 ctx.mapTaps.dispatch(p.first, p.second, s?.first ?: 0f, s?.second ?: 0f)
@@ -594,13 +611,16 @@ fun NativeMapScreen() {
             ui.selected = e
         }
         PlaceDetailPanel(ui.selected, ctx, onClose = { ui.selected = null })
-        AddPointDialog(ui.pendingPoint, onCancel = { ui.pendingPoint = null }, onSave = { name ->
+        AddPointDialog(ui.pendingPoint, initialName = ui.pendingName,
+            onCancel = { ui.pendingPoint = null; ui.pendingName = "" }, onSave = { name ->
             val p = ui.pendingPoint
             if (p != null) {
                 val now = System.currentTimeMillis()
                 ctx.db.insert(LocalEntry(type = EntryType.PLACE.name, title = name,
                     lat = p.first, lng = p.second, body = "", source = "", createdAt = now, updatedAt = now))
                 ui.pendingPoint = null
+                ui.pendingName = ""
+                ui.poiLabel = null
                 ui.status = "已添加点位：" + name
                 ctx.bumpPlaces()
             }
@@ -612,6 +632,7 @@ fun NativeMapScreen() {
 @Composable
 private fun BoxScope.CursorConfirmCard(
     point: Pair<Double, Double>?,
+    poiName: String?,
     onConfirm: (Pair<Double, Double>) -> Unit,
     onCancel: () -> Unit
 ) {
@@ -623,7 +644,8 @@ private fun BoxScope.CursorConfirmCard(
         modifier = Modifier.align(Alignment.TopCenter).padding(top = 56.dp)
     ) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("✛ 待确认：" + String.format("%.5f, %.5f", point.first, point.second),
+            Text("✛ 待确认：" + (poiName?.let { it + " · " } ?: "") +
+                String.format("%.5f, %.5f", point.first, point.second),
                 fontSize = 12.sp, color = pal.text)
             Spacer(Modifier.width(10.dp))
             TextButton(onClick = { onConfirm(point) }) { Text("确认添加", fontSize = 13.sp, color = pal.accent) }
@@ -633,9 +655,14 @@ private fun BoxScope.CursorConfirmCard(
 }
 
 @Composable
-private fun BoxScope.AddPointDialog(point: Pair<Double, Double>?, onCancel: () -> Unit, onSave: (String) -> Unit) {
+private fun BoxScope.AddPointDialog(
+    point: Pair<Double, Double>?,
+    initialName: String,
+    onCancel: () -> Unit,
+    onSave: (String) -> Unit
+) {
     if (point == null) return
-    var name by remember(point) { mutableStateOf("") }
+    var name by remember(point, initialName) { mutableStateOf(initialName) }
     AlertDialog(
         onDismissRequest = onCancel,
         title = { Text("新建点位") },

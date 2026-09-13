@@ -50,7 +50,8 @@ object DatabasePlugin : SpinePlugin {
             if (cursor == null || cs == null) {
                 ctx.mapUi.cursorPoint = lat to lng
                 ctx.mapUi.cursorScreen = sx to sy
-                ctx.mapUi.status = "光标已就位 · 再次点击该处确认添加"
+                ctx.mapUi.status = ctx.mapUi.poiLabel?.let { "光标已就位（$it）· 再次点击确认添加" }
+                    ?: "光标已就位 · 再次点击该处确认添加"
                 true
             } else {
                 val dx = cs.first - sx
@@ -58,6 +59,7 @@ object DatabasePlugin : SpinePlugin {
                 val near = kotlin.math.sqrt(dx * dx + dy * dy) < 28f     // 同一处的像素容差
                 if (near) {
                     ctx.mapUi.pendingPoint = cursor
+                    ctx.mapUi.pendingName = ctx.mapUi.poiLabel ?: ""     // POI 点击 → 名称预填
                     ctx.mapUi.cursorPoint = null
                     ctx.mapUi.cursorScreen = null
                     ctx.mapUi.status = "已确认位置 · 填写名称后保存"
