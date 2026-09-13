@@ -10,6 +10,11 @@ interface MapLayerApi {
     fun addPolygon(layerId: String, ring: List<Pair<Double, Double>>, colorArgb: Int, strokeWidth: Float, fillAlpha: Int)
     fun clearLayer(layerId: String)
     fun clearAllLayers()
+    /** 待确认光标（两段式添加点位的第一阶段指示；不受图层重绘影响） */
+    fun setCursor(lat: Double, lng: Double)
+    fun clearCursor()
+    /** 点击光标本身 = 确认（由宿主编排到 tap 动作） */
+    fun setCursorTapHandler(cb: (() -> Unit)?)
 }
 
 /** 一个地图图层注册项（数据/绘制逻辑由贡献插件提供） */
@@ -39,7 +44,8 @@ class MapTapAction(
     val id: String,
     val label: String,
     val priority: Int,
-    val handler: (lat: Double, lng: Double) -> Boolean
+    /** lat, lng, 以及点击处屏幕像素坐标（用于"再次点击同一点"的判定） */
+    val handler: (lat: Double, lng: Double, sx: Float, sy: Float) -> Boolean
 )
 
 class MapTapRegistry {
@@ -49,9 +55,9 @@ class MapTapRegistry {
         return Disposable { items.remove(a.id) }
     }
     fun all(): List<MapTapAction> = items.values.sortedByDescending { it.priority }
-    fun dispatch(lat: Double, lng: Double): Boolean {
+    fun dispatch(lat: Double, lng: Double, sx: Float = 0f, sy: Float = 0f): Boolean {
         for (a in all()) {
-            if (a.handler(lat, lng)) return true
+            if (a.handler(lat, lng, sx, sy)) return true
         }
         return false
     }

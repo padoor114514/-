@@ -41,12 +41,33 @@ object DatabasePlugin : SpinePlugin {
             }
         })
 
-        // 地图点击动作：任意位置点击 → 预填坐标的新建点位
-        ctx.mapTap(MapTapAction(id = "db.addPoint", label = "添加点位", priority = 100) { lat, lng ->
-            val p = lat to lng
-            if (ctx.mapUi.pendingPoint == p) return@MapTapAction false
-            ctx.mapUi.pendingPoint = p
-            true
+        // 地图点击动作（两段式）：
+        //   第一次点击 → 落光标（仅指示位置，可再点别处移动）
+        //   再次点击同一点 → 确认，弹出命名对话框入库
+        ctx.mapTap(MapTapAction(id = "db.addPoint", label = "添加点位", priority = 100) { lat, lng, sx, sy ->
+            val cursor = ctx.mapUi.cursorPoint
+            val cs = ctx.mapUi.cursorScreen
+            if (cursor == null || cs == null) {
+                ctx.mapUi.cursorPoint = lat to lng
+                ctx.mapUi.cursorScreen = sx to sy
+                ctx.mapUi.status = "光标已就位 · 再次点击该处确认添加"
+                true
+            } else {
+                val dx = cs.first - sx
+                val dy = cs.second - sy
+                val near = kotlin.math.sqrt(dx * dx + dy * dy) < 28f     // 同一处的像素容差
+                if (near) {
+                    ctx.mapUi.pendingPoint = cursor
+                    ctx.mapUi.cursorPoint = null
+                    ctx.mapUi.cursorScreen = null
+                    ctx.mapUi.status = "已确认位置 · 填写名称后保存"
+                } else {
+                    ctx.mapUi.cursorPoint = lat to lng
+                    ctx.mapUi.cursorScreen = sx to sy
+                    ctx.mapUi.status = "光标已移动 · 再次点击确认添加"
+                }
+                true
+            }
         })
     }
 }

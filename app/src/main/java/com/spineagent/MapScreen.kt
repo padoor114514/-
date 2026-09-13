@@ -146,12 +146,31 @@ private fun dotDescriptor(color: Int, density: Float): BitmapDescriptor {
     return BitmapDescriptorFactory.fromBitmap(bmp)
 }
 
+private fun crosshairDescriptor(density: Float): BitmapDescriptor {
+    val s = (34 * density).toInt().coerceAtLeast(28)
+    val bmp = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
+    val cv = Canvas(bmp)
+    val p = Paint(Paint.ANTI_ALIAS_FLAG)
+    val c = s / 2f
+    p.style = Paint.Style.STROKE
+    p.strokeWidth = 3f * density
+    p.color = 0xFFE08A3C.toInt()
+    cv.drawCircle(c, c, c - 3f * density, p)
+    cv.drawLine(c, 2f * density, c, s - 2f * density, p)
+    cv.drawLine(2f * density, c, s - 2f * density, c, p)
+    p.style = Paint.Style.FILL
+    cv.drawCircle(c, c, 2.5f * density, p)
+    return BitmapDescriptorFactory.fromBitmap(bmp)
+}
+
 private class NativeMapHolder : MapLayerApi {
     var mapView: MapView? = null
         private set
     private var aMap: AMap? = null
     private val overlays = LinkedHashMap<String, MutableList<Any>>()
-    var onMapTap: ((Double, Double) -> Unit)? = null
+    private val cursorMarkers = mutableListOf<Marker>()
+    private var cursorTap: (() -> Unit)? = null
+    var onMapTap: ((Double, Double, Float, Float) -> Unit)? = null
     var redraw: (() -> Unit)? = null
 
     fun bind(v: MapView) {
@@ -163,7 +182,10 @@ private class NativeMapHolder : MapLayerApi {
             uiSettings.isRotateGesturesEnabled = false
             uiSettings.isTiltGesturesEnabled = false
             moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(30.0, 105.0), 3f))
-            setOnMapClickListener { ll -> onMapTap?.invoke(ll.latitude, ll.longitude) }
+            setOnMapClickListener { ll ->
+                val p = projection.toScreenLocation(ll)
+                onMapTap?.invoke(ll.latitude, ll.longitude, p.x.toFloat(), p.y.toFloat())
+            }
             setOnMarkerClickListener { m ->
                 val cb = m.getObject()
                 if (cb is Function0<*>) {
@@ -240,6 +262,26 @@ private class NativeMapHolder : MapLayerApi {
     }
 
     override fun clearAllLayers() { overlays.keys.toList().forEach { clearLayer(it) } }
+
+    /** 两段式添加点位的光标：橙色准星（独立于图层重绘） */
+    override fun setCursor(lat: Double, lng: Double) {
+        val map = aMap ?: return
+        clearCursor()
+        val dens = mapView?.resources?.displayMetrics?.density ?: 1f
+        val m = map.addMarker(
+            MarkerOptions().position(LatLng(lat, lng)).title("待确认点位")
+                .icon(crosshairDescriptor(dens)).anchor(0.5f, 0.5f)
+        ) ?: return
+        m.setObject(cursorTap)          // 点光标本身 = 确认添加
+        cursorMarkers.add(m)
+    }
+
+    override fun clearCursor() {
+        cursorMarkers.forEach { it.remove() }
+        cursorMarkers.clear()
+    }
+
+    override fun setCursorTapHandler(cb: (() -> Unit)?) { cursorTap = cb }
 
     private fun store(layerId: String, o: Any) {
         overlays.getOrPut(layerId) { mutableListOf() }.add(o)
@@ -324,7 +366,12 @@ fun NativeMapScreen() {
     }
     DisposableEffect(Unit) {
         holder.redraw = { ctx.mapLayers.renderEnabled(holder, ui.layers) }
-        holder.onMapTap = { lat, lng -> ctx.mapTaps.dispatch(lat, lng) }
+        holder.onMapTap = { lat, lng, sx, sy -> ctx.mapTaps.dispatch(lat, lng, sx, sy) }
+        holder.setCursorTapHandler {
+            val c = ui.cursorPoint
+            val s = ui.cursorScreen
+            if (c != null) ctx.mapTaps.dispatch(c.first, c.second, s?.first ?: 0f, s?.second ?: 0f)
+        }
         onDispose { holder.redraw = null; holder.onMapTap = null }
     }
     DisposableEffect(lifecycleOwner) {
@@ -349,6 +396,10 @@ fun NativeMapScreen() {
             holder.redraw?.invoke()
             delay(30_000)
         }
+    }
+    LaunchedEffect(ui.cursorPoint) {
+        val c = ui.cursorPoint
+        if (c == null) holder.clearCursor() else holder.setCursor(c.first, c.second)
     }
     LaunchedEffect(ui.layers.toMap()) { holder.redraw?.invoke() }
     LaunchedEffect(ui.placesVersion) { reloadPlaces(ctx); holder.redraw?.invoke() }
@@ -405,6 +456,14 @@ fun NativeMapScreen() {
             ZoomBtn(Icons.Default.RestartAlt) { holder.zoomReset() }
         }
 
+        CursorConfirmCard(
+            point = ui.cursorPoint,
+            onConfirm = { p ->
+                val s = ctx.mapUi.cursorScreen
+                ctx.mapTaps.dispatch(p.first, p.second, s?.first ?: 0f, s?.second ?: 0f)
+            },
+            onCancel = { ui.cursorPoint = null; ui.cursorScreen = null; ui.status = "已取消 · 点击地图任意位置重新落点" }
+        )
         PlaceSearchUi(ui.places) { e ->
             if (e.hasCoords) holder.focus(e.lat!!, e.lng!!, 12f)
             ui.selected = e
@@ -421,6 +480,28 @@ fun NativeMapScreen() {
                 ctx.bumpPlaces()
             }
         })
+    }
+}
+
+/** 两段式第一步的确认卡片：显示光标坐标，可点按钮或再点地图确认 */
+@Composable
+private fun BoxScope.CursorConfirmCard(
+    point: Pair<Double, Double>?,
+    onConfirm: (Pair<Double, Double>) -> Unit,
+    onCancel: () -> Unit
+) {
+    if (point == null) return
+    Surface(
+        shape = RoundedCornerShape(14.dp), color = ComposeColor(0xF2FFFFFF),
+        modifier = Modifier.align(Alignment.TopCenter).padding(top = 56.dp)
+    ) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("✛ 待确认：" + String.format("%.5f, %.5f", point.first, point.second),
+                fontSize = 12.sp, color = ComposeColor(0xFF1F4A36))
+            Spacer(Modifier.width(10.dp))
+            TextButton(onClick = { onConfirm(point) }) { Text("确认添加", fontSize = 13.sp) }
+            TextButton(onClick = onCancel) { Text("取消", fontSize = 13.sp, color = ComposeColor(0xFF7FAE92)) }
+        }
     }
 }
 

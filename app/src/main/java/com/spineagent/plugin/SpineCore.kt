@@ -65,7 +65,11 @@ class ModuleRegistry {
 
 // ── 地图共享状态（跨插件读写，Compose 可观察）──
 class MapUiState {
-    /** 当前待新建的点位（地图任意处点击后由 tap action 写入） */
+    /** 第一阶段：地图上的待确认光标位置（再次点击才确认添加） */
+    var cursorPoint by mutableStateOf<Pair<Double, Double>?>(null)      // lat, lng
+    /** 光标所在屏幕像素位置（判定"再次点击同一点"用） */
+    var cursorScreen by mutableStateOf<Pair<Float, Float>?>(null)
+    /** 第二阶段：已确认、等待命名入库的点位（弹出命名对话框） */
     var pendingPoint by mutableStateOf<Pair<Double, Double>?>(null)      // lat, lng
     /** 图层的开关状态：layerId -> on */
     val layers = mutableStateMapOf<String, Boolean>()
